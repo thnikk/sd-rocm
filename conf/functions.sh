@@ -154,6 +154,12 @@ install_rocm_torch() {
   pip3 install numpy==1.26.4
 }
 
+setup_directories() {
+  [ ! -d "${ROOT_DIR}/outputs" ] && mkdir "${ROOT_DIR}/outputs"
+  [ ! -d "${ROOT_DIR}/models" ] && mkdir "${ROOT_DIR}/models"
+  [ ! -d "${ROOT_DIR}/models/Stable-diffusion" ] && mkdir "${ROOT_DIR}/Stable-diffusion"
+}
+
 setup_comfyui() {
   MARKER_FILE="${ROOT_DIR}/.${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized"
 
@@ -176,7 +182,7 @@ setup_comfyui() {
     if [ -d "${ROOT_DIR}/comfyui/models/checkpoints" ]; then
       rm -r "${ROOT_DIR}/comfyui/models/checkpoints"
     fi
-    ln -sf ../../../checkpoints "${ROOT_DIR}/comfyui/models/checkpoints"
+    ln -sf /root/models/Stable-diffusion "${ROOT_DIR}/comfyui/models/checkpoints"
 
     if [ ! -d "${ROOT_DIR}/comfyui/custom_nodes/ComfyUI-Manager" ]; then
       git clone https://github.com/ltdrdata/ComfyUI-Manager "${ROOT_DIR}/comfyui/custom_nodes/ComfyUI-Manager"
@@ -213,10 +219,44 @@ setup_webui() {
     install_rocm_torch
 
     # use shared model folder
-        if [ -d "${ROOT_DIR}/sd-webui/models/Stable-diffusion" ]; then
-      rm -r "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
+    if [ -d "${ROOT_DIR}/sd-webui/models" ]; then
+      rm -r "${ROOT_DIR}/sd-webui/models"
     fi
-    ln -sf ../../../checkpoints "${ROOT_DIR}/sd-webui/models/Stable-diffusion"
+    ln -sf "${ROOT_DIR}/models" "${ROOT_DIR}/sd-webui/models"
+
+    # libtif.so.5 is needed to run but libtif.so.6 is installed
+    sudo ln -fs /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
+
+    echo "webui environment initialization complete."
+    echo "===================="
+    touch "$MARKER_FILE"
+  fi
+}
+
+setup_reforge() {
+  MARKER_FILE="${ROOT_DIR}/.${DOCKER_INSTANCE}_${PYTHON_VERSION}_initialized_reforge"
+
+  if [ ! -f "$MARKER_FILE" ]; then
+    echo "webui environment not initialized. Initializing now..."
+    echo "===================="
+
+    if [ ! -d "${ROOT_DIR}/reforge" ]; then
+    # Uncomment to use old Automatic1111
+#    git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui "${ROOT_DIR}/sd-webui"
+    git clone https://github.com/Panchovix/stable-diffusion-webui-reForge "${ROOT_DIR}/reforge"
+    fi
+
+    cd "${ROOT_DIR}/reforge"
+    git pull
+
+    pip install -r requirements_versions.txt
+    install_rocm_torch
+
+    # use shared model folder
+    if [ -d "${ROOT_DIR}/sd-webui/models" ]; then
+      rm -r "${ROOT_DIR}/sd-webui/models"
+    fi
+    ln -sf "${ROOT_DIR}/models" "${ROOT_DIR}/sd-webui/models"
 
     # libtif.so.5 is needed to run but libtif.so.6 is installed
     sudo ln -fs /usr/lib/x86_64-linux-gnu/libtiff.so /usr/lib/x86_64-linux-gnu/libtiff.so.5
@@ -272,4 +312,18 @@ launch_webui() {
   python launch.py --listen --port "${WEBUI_PORT}" --api \
     --skip-version-check --skip-python-version-check --enable-insecure-extension-access \
     --precision full --no-half --no-half-vae
+}
+
+launch_reforge() {
+  cd "${ROOT_DIR}/reforge"
+  git pull
+
+  if [[ "${ROCM_VERSION}" == cpuonly ]]; then
+    export COMMANDLINE_ARGS="--skip-torch-cuda-test --theme=dark"
+  fi
+
+  python launch.py --listen --port "${REFORGE_PORT}" --api \
+    --skip-version-check --skip-python-version-check \
+    --enable-insecure-extension-access \
+    --precision full --no-half --no-half-vae --theme=dark
 }
